@@ -13,7 +13,6 @@ from .crypto_utils import read_passphrase_from_file, get_public_key_bytes
 
 
 def generate_key_pair(key_type: str, key_size: int):
-    """Генерация пары ключей (PKI-1)"""
     if key_type == "rsa":
         if key_size != 4096:
             raise ValueError("RSA key size must be 4096")
@@ -36,7 +35,6 @@ def generate_key_pair(key_type: str, key_size: int):
 
 
 def parse_subject_name(subject_str: str) -> x509.Name:
-    """Парсинг строки Subject в объект x509.Name"""
     attributes = []
     clean_subject = subject_str.lstrip('/')
 
@@ -65,7 +63,6 @@ def parse_subject_name(subject_str: str) -> x509.Name:
 
 
 def create_self_signed_cert(private_key, subject_name: x509.Name, validity_days: int) -> x509.Certificate:
-    """Создание самоподписанного сертификата (PKI-2, PKI-3)"""
     now = datetime.now(timezone.utc)
     serial_number = x509.random_serial_number()
 
@@ -77,13 +74,11 @@ def create_self_signed_cert(private_key, subject_name: x509.Name, validity_days:
     builder = builder.not_valid_before(now)
     builder = builder.not_valid_after(now + timedelta(days=validity_days))
 
-    # Basic Constraints: CA=TRUE, Critical
     builder = builder.add_extension(
         x509.BasicConstraints(ca=True, path_length=None),
         critical=True
     )
 
-    # Key Usage: keyCertSign, cRLSign, Critical
     builder = builder.add_extension(
         x509.KeyUsage(
             digital_signature=True,
@@ -99,13 +94,11 @@ def create_self_signed_cert(private_key, subject_name: x509.Name, validity_days:
         critical=True
     )
 
-    # Subject Key Identifier (SKI)
     builder = builder.add_extension(
         x509.SubjectKeyIdentifier.from_public_key(private_key.public_key()),
         critical=False
     )
 
-    # Authority Key Identifier (AKI)
     builder = builder.add_extension(
         x509.AuthorityKeyIdentifier.from_issuer_subject_key_identifier(
             x509.SubjectKeyIdentifier.from_public_key(private_key.public_key())
@@ -113,7 +106,6 @@ def create_self_signed_cert(private_key, subject_name: x509.Name, validity_days:
         critical=False
     )
 
-    # Алгоритм подписи
     if isinstance(private_key, rsa.RSAPrivateKey):
         signature_algorithm = hashes.SHA256()
     elif isinstance(private_key, ec.EllipticCurvePrivateKey):
@@ -125,7 +117,6 @@ def create_self_signed_cert(private_key, subject_name: x509.Name, validity_days:
 
 
 def save_encrypted_key(private_key, passphrase: bytes, output_path: Path):
-    """Сохранение зашифрованного ключа (KEY-1, KEY-2)"""
     pem = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
@@ -134,7 +125,6 @@ def save_encrypted_key(private_key, passphrase: bytes, output_path: Path):
 
     output_path.write_bytes(pem)
 
-    # Попытка установить права 0o600
     try:
         os.chmod(output_path, stat.S_IRUSR | stat.S_IWUSR)
     except OSError:
@@ -142,18 +132,15 @@ def save_encrypted_key(private_key, passphrase: bytes, output_path: Path):
 
 
 def save_certificate(cert: x509.Certificate, output_path: Path):
-    """Сохранение сертификата (PKI-4, PKI-5)"""
     pem = cert.public_bytes(serialization.Encoding.PEM)
     output_path.write_bytes(pem)
 
 
 def create_policy_file(out_dir: Path, subject: str, serial: int, validity_days: int, key_type: str, key_size: int):
-    """Создание policy.txt (POL-1)"""
     now = datetime.now(timezone.utc)
     not_after = now + timedelta(days=validity_days)
 
     content = f"""MicroPKI Certificate Policy Document
-=====================================
 CA Name: {subject}
 Certificate Serial Number: {hex(serial)}
 Validity Period: {now.strftime('%Y-%m-%d')} to {not_after.strftime('%Y-%m-%d')}
@@ -168,27 +155,21 @@ Creation Date: {now.strftime('%Y-%m-%d %H:%M:%S UTC')}
 
 
 def initialize_ca(args, logger):
-    """Основная функция инициализации CA"""
     logger.info("Starting Root CA initialization...")
 
-    # 1. Чтение пароля
     logger.info("Reading passphrase...")
     passphrase = read_passphrase_from_file(args.passphrase_file)
 
-    # 2. Генерация ключей
     logger.info(f"Generating {args.key_type.upper()} key pair ({args.key_size} bits)...")
     private_key = generate_key_pair(args.key_type, args.key_size)
     logger.info("Key generation completed.")
 
-    # 3. Парсинг Subject
     subject_name = parse_subject_name(args.subject)
 
-    # 4. Создание сертификата
     logger.info("Creating self-signed X.509 certificate...")
     cert = create_self_signed_cert(private_key, subject_name, args.validity_days)
     logger.info(f"Certificate created. Serial: {hex(cert.serial_number)}")
 
-    # 5. Подготовка директорий
     out_dir = Path(args.out_dir)
     private_dir = out_dir / "private"
     certs_dir = out_dir / "certs"
@@ -196,17 +177,14 @@ def initialize_ca(args, logger):
     private_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     certs_dir.mkdir(parents=True, exist_ok=True)
 
-    # 6. Сохранение ключа
     key_path = private_dir / "ca.key.pem"
     save_encrypted_key(private_key, passphrase, key_path)
     logger.info(f"Encrypted private key saved to: {key_path}")
 
-    # 7. Сохранение сертификата
     cert_path = certs_dir / "ca.cert.pem"
     save_certificate(cert, cert_path)
     logger.info(f"Certificate saved to: {cert_path}")
 
-    # 8. Создание Policy файла
     create_policy_file(out_dir, args.subject, cert.serial_number, args.validity_days, args.key_type, args.key_size)
     logger.info(f"Policy document saved to: {out_dir / 'policy.txt'}")
 

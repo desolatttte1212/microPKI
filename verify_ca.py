@@ -24,13 +24,11 @@ def main():
 
     print("=== MicroPKI Verification Suite (Sprint 1) ===\n")
 
-    # 1. Проверка существования файлов
     if not cert_path.exists() or not key_path.exists():
         print("[FAIL] Files missing!")
         return 1
     print("[OK] Files exist.")
 
-    # 2. Чтение данных
     try:
         cert = load_cert(str(cert_path))
         passphrase = pass_path.read_bytes().rstrip(b'\r\n')
@@ -40,27 +38,15 @@ def main():
         print(f"[FAIL] Loading error: {e}")
         return 1
 
-    # TEST-1: Self-Consistency (Самопроверка сертификата)
-    # Проверяем, что сертификат подписан самим собой
     try:
-        # В cryptography нет прямой функции verify_self_signed, но мы можем проверить подпись вручную
-        # Или просто убедиться, что Issuer == Subject и ключи совпадают
         if cert.subject != cert.issuer:
             print("[FAIL] Subject != Issuer (Not self-signed)")
             return 1
-
-        # Проверка подписи: используем публичный ключ из сертификата для проверки подписи самого сертификата
-        # Это эмуляция того, что делает openssl verify
         from cryptography.hazmat.backends import default_backend
-        # Библиотека автоматически проверяет подпись при загрузке, если бы мы загружали цепочку,
-        # но для самоподписанного достаточно проверить соответствие ключей ниже.
         print("[OK] Certificate structure valid (Subject == Issuer).")
     except Exception as e:
         print(f"[FAIL] Structure error: {e}")
         return 1
-
-    # TEST-2: Private Key & Certificate Matching
-    # Генерируем тестовую подпись и проверяем её публичным ключом из сертификата
     try:
         message = b"MicroPKI Test Message"
         public_key = cert.public_key()
@@ -87,11 +73,8 @@ def main():
         print(f"[FAIL] Signature test error: {e}")
         return 1
 
-    # TEST-3: Encrypted Key Loading
-    # Мы уже загрузили ключ выше, если бы пароль был неверен, выбросило бы ошибку.
     print("[OK] Encrypted Key decryption successful (Correct passphrase).")
 
-    # Проверка расширений (PKI-3)
     try:
         bc = cert.extensions.get_extension_for_class(x509.BasicConstraints)
         if not bc.value.ca:
@@ -110,7 +93,6 @@ def main():
         print(f"[FAIL] Extension check error: {e}")
         return 1
 
-    # Вывод информации о сертификате
     print("\n--- Certificate Info ---")
     print(f"Subject: {cert.subject.rfc4514_string()}")
     print(f"Issuer: {cert.issuer.rfc4514_string()}")
