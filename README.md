@@ -2,71 +2,64 @@
 
 **MicroPKI** — это минималистичный инструмент инфраструктуры открытых ключей (PKI) на Python, предназначенный для создания и управления собственными центрами сертификации (CA). Проект реализует безопасную генерацию ключей, создание самоподписанных сертификатов X.509 v3 и аудит операций.
 
-## Спринт 1 (Root CA Foundation)
-
-### 🚀 Возможности (Спринт 1)
-
-- **Генерация ключей:** Поддержка алгоритмов RSA (4096 бит) и ECC (NIST P-384).
-- **Сертификаты X.509 v3:** Создание самоподписанных корневых сертификатов с критическими расширениями:
-  - `BasicConstraints` (CA=TRUE)
-  - `KeyUsage` (keyCertSign, cRLSign)
-  - `SubjectKeyIdentifier` (SKI) и `AuthorityKeyIdentifier` (AKI)
-- **Безопасное хранение:**
-  - Шифрование приватных ключей паролем (AES-256-CBC, PKCS#8).
-  - Автоматическая установка строгих прав доступа к файлам (chmod 600/700).
-  - Защита паролей от попадания в логи.
-- **Аудит и политики:**
-  - Подробное логирование событий в формате ISO 8601.
-  - Автоматическая генерация документа политики (`policy.txt`).
-- **CLI интерфейс:** Удобная командная строка с валидацией аргументов.
-
----
-
-##  Установка
-
-### Требования
-- Python 3.8 или выше
-- Менеджер пакетов `pip`
-
-### Шаги установки
-
-
-   ```bash
-   python -m venv venv
-   .\venv\Scripts\Activate.ps1
-   pip install -r requirements.txt
-  ```
-### Использование
-Инициализация корневого CA (Root CA)
-Команда ca init создает новую инфраструктуру PKI в указанной директории.
-Пример 1: RSA ключ (по умолчанию)
+## Спринт 2: Иерархическая PKI
+Во втором спринте добавлена поддержка многоуровневой инфраструктуры:
+Intermediate CA: Создание промежуточного центра сертификации, подписанного корневым (Root CA).
+Шаблоны сертификатов: Автоматическая настройка расширений для серверов (server), клиентов (client) и подписи кода (code_signing).
+Subject Alternative Name (SAN): Поддержка множественных имен (DNS, IP, Email, URI) в одном сертификате.
+Валидация цепочки: Инструменты для проверки доверия от листового сертификата до корня.
+### Создание Intermediate CA
+Промежуточный центр позволяет изолировать корневой ключ и гибко управлять выпуском сертификатов.
  ```bash
-# Создайте файл с паролем (не храните его в репозитории!)
-echo "MySuperSecretPassword123" > secrets/ca.pass
+# 1. Создайте пароль для промежуточного центра
+echo "IntermediatePass123" > secrets/intermediate.pass
 
-# Запуск генерации
-python -m micropki.cli ca init --subject "/CN=Demo Root CA,O=MicroPKI,C=US" --key-type rsa --key-size 4096 --passphrase-file ./secrets/ca.pass --out-dir ./pki --validity-days 3650 --log-file ./logs/ca-init.log
+# 2. Сгенерируйте Intermediate CA (подписывается Root CA)
+python -m micropki.cli ca issue-intermediate \
+    --root-cert ./pki/certs/ca.cert.pem \
+    --root-key ./pki/private/ca.key.pem \
+    --root-pass-file ./secrets/root.pass \
+    --subject "/CN=My Intermediate CA,O=MyCompany" \
+    --key-type rsa \
+    --key-size 4096 \
+    --passphrase-file ./secrets/intermediate.pass \
+    --out-dir ./pki \
+    --validity-days 1825 \
+    --pathlen 0
  ```
-Пример 2: ECC ключ (кривая P-384)
+### Выпуск листовых сертификатов (Leaf Certificates)
+Используйте шаблон --template для автоматической настройки расширений (Key Usage, Extended Key Usage).
+Пример А: Серверный сертификат (HTTPS)
+Обязательно требует наличия SAN (DNS или IP).
  ```bash
- python -m micropki.cli ca init --subject "CN=ECC Root CA,O=MicroPKI" --key-type ecc --key-size 384 --passphrase-file ./secrets/ca.pass --out-dir ./pki_ecc
+python -m micropki.cli ca issue-cert \
+    --ca-cert ./pki/certs/intermediate.cert.pem \
+    --ca-key ./pki/private/intermediate.key.pem \
+    --ca-pass-file ./secrets/intermediate.pass \
+    --template server \
+    --subject "/CN=example.com,O=MyCompany" \
+    --san dns:example.com \
+    --san dns:www.example.com \
+    --san ip:192.168.1.10 \
+    --out-dir ./pki/certs/issued \
+    --validity-days 365
  ```
-### Структура выходных данных
-После успешного выполнения команды в директории --out-dir создается следующая структура:
+Пример Б: Клиентский сертификат (VPN, Auth)
+Рекомендуется указывать Email в SAN.
  ```bash
- pki/
-├── private/
-│   └── ca.key.pem       # Зашифрованный приватный ключ (Permissions: 600)
-├── certs/
-│   └── ca.cert.pem      # Открытый сертификат в формате PEM
-└── policy.txt           # Документ с политикой и деталями сертификата
+python -m micropki.cli ca issue-cert \
+    --ca-cert ./pki/certs/intermediate.cert.pem \
+    --ca-key ./pki/private/intermediate.key.pem \
+    --ca-pass-file ./secrets/intermediate.pass \
+    --template code_signing \
+    --subject "/CN=MyCode Signer" \
+    --out-dir ./pki/certs/issued
  ```
-### Тестирование
-Запуск автотестов (pytest)
+### Проверка цепочки доверия
  ```bash
-python -m pytest tests/ -v
+python verify_chain.py
  ```
-Ручная верификация
+### Запуск тестов
  ```bash
- python verify_ca.py
+python -m pytest tests/test_sprint2.py -v
  ```
