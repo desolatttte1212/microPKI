@@ -1,0 +1,10 @@
+MicroPKI Certificate Policy Document
+=====================================
+CA Name: /CN=Demo Root CA
+Certificate Serial Number: 0x1312e7170be31164cb2e503b8dc6c333433ec39d
+Validity Period: 2026-03-22 to 2036-03-19
+Key Algorithm: RSA
+Key Size: 4096 bits
+Purpose: Root CA for MicroPKI demonstration
+Policy Version: 1.0
+Creation Date: 2026-03-22 19:59:25 UTC

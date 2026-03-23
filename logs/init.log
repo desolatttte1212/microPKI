@@ -1,0 +1,7 @@
+2026-03-22T22:48:28.131 - INFO - Starting MicroPKI command: ca init
+2026-03-22T22:48:28.131 - INFO - Passphrase file validated successfully.
+2026-03-22T22:48:28.133 - INFO - Arguments validated successfully.
+2026-03-22T22:48:28.133 - INFO - Ready to initialize CA with Subject: /CN=Demo Root CA
+2026-03-22T22:48:28.133 - INFO - Configuration: Type=RSA, Size=4096, Days=3650
+2026-03-22T22:48:28.133 - INFO - Sprint 1 Core Logic implementation pending...
+2026-03-22T22:48:28.133 - INFO - Command completed successfully (Validation Phase).
