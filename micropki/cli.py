@@ -4,110 +4,159 @@ from pathlib import Path
 
 from .logger import setup_logger
 from .crypto_utils import read_passphrase_from_file
+from .database import init_db, list_certificates, get_certificate_by_serial
+from tabulate import tabulate
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        prog="micropki",
-        description="MicroPKI: Minimalist Public Key Infrastructure Tool"
-    )
-
+    parser = argparse.ArgumentParser(prog="micropki", description="MicroPKI (Sprint 3)")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    ca_parser = subparsers.add_parser("ca", help="Certificate Authority operations")
+    ca_parser = subparsers.add_parser("ca", help="CA operations")
     ca_subparsers = ca_parser.add_subparsers(dest="subcommand", required=True)
 
-    init_parser = ca_subparsers.add_parser("init", help="Initialize a self-signed Root CA")
+    init_p = ca_subparsers.add_parser("init", help="Init Root CA")
+    init_p.add_argument("--subject", required=True)
+    init_p.add_argument("--key-type", choices=["rsa", "ecc"], default="rsa")
+    init_p.add_argument("--key-size", type=int, default=None)
+    init_p.add_argument("--passphrase-file", required=True)
+    init_p.add_argument("--out-dir", default="./pki")
+    init_p.add_argument("--validity-days", type=int, default=3650)
+    init_p.add_argument("--log-file", default=None)
+    init_p.add_argument("--db-path", default="./pki/micropki.db", help="Path to DB to store Root CA")
 
-    init_parser.add_argument(
-        "--subject", type=str, required=True,
-        help="Distinguished Name (e.g., '/CN=My Root CA' or 'CN=My Root CA,O=Demo')"
-    )
-    init_parser.add_argument(
-        "--key-type", type=str, choices=["rsa", "ecc"], default="rsa",
-        help="Key type: rsa or ecc (default: rsa)"
-    )
-    init_parser.add_argument(
-        "--key-size", type=int, default=None,
-        help="Key size: 4096 for RSA, 384 for ECC. Defaults to type standard if omitted."
-    )
-    init_parser.add_argument(
-        "--passphrase-file", type=str, required=True,
-        help="Path to file containing the encryption passphrase"
-    )
-    init_parser.add_argument(
-        "--out-dir", type=str, default="./pki",
-        help="Output directory (default: ./pki)"
-    )
-    init_parser.add_argument(
-        "--validity-days", type=int, default=3650,
-        help="Validity period in days (default: 3650)"
-    )
-    init_parser.add_argument(
-        "--log-file", type=str, default=None,
-        help="Path to log file. If omitted, logs to stderr."
-    )
+    int_p = ca_subparsers.add_parser("issue-intermediate", help="Issue Intermediate CA")
+    int_p.add_argument("--root-cert", required=True)
+    int_p.add_argument("--root-key", required=True)
+    int_p.add_argument("--root-pass-file", required=True)
+    int_p.add_argument("--subject", required=True)
+    int_p.add_argument("--key-type", choices=["rsa", "ecc"], default="rsa")
+    int_p.add_argument("--key-size", type=int, default=None)
+    int_p.add_argument("--passphrase-file", required=True)
+    int_p.add_argument("--out-dir", default="./pki")
+    int_p.add_argument("--validity-days", type=int, default=1825)
+    int_p.add_argument("--pathlen", type=int, default=0)
+    int_p.add_argument("--log-file", default=None)
+    int_p.add_argument("--db-path", default="./pki/micropki.db", help="Path to DB")
+
+    cert_p = ca_subparsers.add_parser("issue-cert", help="Issue Leaf Cert")
+    cert_p.add_argument("--ca-cert", required=True)
+    cert_p.add_argument("--ca-key", required=True)
+    cert_p.add_argument("--ca-pass-file", required=True)
+    cert_p.add_argument("--template", required=True, choices=["server", "client", "code_signing"])
+    cert_p.add_argument("--subject", required=True)
+    cert_p.add_argument("--san", action="append", default=[])
+    cert_p.add_argument("--out-dir", default="./pki/certs")
+    cert_p.add_argument("--validity-days", type=int, default=365)
+    cert_p.add_argument("--csr", default=None)
+    cert_p.add_argument("--log-file", default=None)
+    cert_p.add_argument("--db-path", default="./pki/micropki.db", help="Path to DB")
+
+    list_p = ca_subparsers.add_parser("list-certs", help="List certificates from DB")
+    list_p.add_argument("--db-path", default="./pki/micropki.db")
+    list_p.add_argument("--status", choices=["valid", "revoked", "expired"], default=None)
+    list_p.add_argument("--format", choices=["table", "json", "csv"], default="table")
+
+    show_p = ca_subparsers.add_parser("show-cert", help="Show cert PEM by serial")
+    show_p.add_argument("serial", help="Serial number (hex)")
+    show_p.add_argument("--db-path", default="./pki/micropki.db")
+
+    db_parser = subparsers.add_parser("db", help="Database operations")
+    db_subparsers = db_parser.add_subparsers(dest="subcommand", required=True)
+
+    db_init_p = db_subparsers.add_parser("init", help="Initialize DB schema")
+    db_init_p.add_argument("--db-path", default="./pki/micropki.db")
+
+    repo_parser = subparsers.add_parser("repo", help="Repository operations")
+    repo_subparsers = repo_parser.add_subparsers(dest="subcommand", required=True)
+
+    repo_serve_p = repo_subparsers.add_parser("serve", help="Start HTTP server")
+    repo_serve_p.add_argument("--host", default="127.0.0.1")
+    repo_serve_p.add_argument("--port", type=int, default=8080)
+    repo_serve_p.add_argument("--db-path", default="./pki/micropki.db")
+    repo_serve_p.add_argument("--cert-dir", default="./pki/certs")
+    repo_serve_p.add_argument("--log-file", default=None)
 
     return parser.parse_args()
-
-
-def validate_args(args, logger):
-    if not args.subject or len(args.subject.strip()) == 0:
-        logger.error("Subject cannot be empty.")
-        sys.exit(1)
-
-    expected_size = 4096 if args.key_type == "rsa" else 384
-
-    if args.key_size is None:
-        args.key_size = expected_size
-        logger.info(f"Key size not specified, defaulting to {expected_size} for {args.key_type.upper()}")
-    elif args.key_size != expected_size:
-        logger.error(f"Invalid key size {args.key_size} for {args.key_type.upper()}. Expected {expected_size}.")
-        sys.exit(1)
-
-    try:
-        read_passphrase_from_file(args.passphrase_file)
-        logger.info("Passphrase file validated successfully.")
-    except Exception as e:
-        logger.error(f"Failed to access passphrase file: {e}")
-        sys.exit(1)
-
-    out_path = Path(args.out_dir)
-    try:
-        out_path.mkdir(parents=True, exist_ok=True)
-        test_file = out_path / ".write_test"
-        test_file.touch()
-        test_file.unlink()
-    except Exception as e:
-        logger.error(f"Output directory '{args.out_dir}' is not writable: {e}")
-        sys.exit(1)
-
-    if args.validity_days <= 0:
-        logger.error("Validity days must be a positive integer.")
-        sys.exit(1)
 
 
 def main():
     args = parse_args()
 
-    logger = setup_logger(args.log_file)
-    logger.info(f"Starting MicroPKI command: {args.command} {args.subcommand}")
+    log_file = getattr(args, 'log_file', None)
+    logger = setup_logger(log_file)
+    logger.info(f"Command: {args.command} {args.subcommand}")
 
-    if args.subcommand == "init":
-        validate_args(args, logger)
-        logger.info("Arguments validated successfully.")
+    try:
+        if args.command == "db":
+            if args.subcommand == "init":
+                init_db(args.db_path)
+                logger.info(f"Database initialized at {args.db_path}")
+                print(f"[OK] Database initialized: {args.db_path}")
 
-        from .ca import initialize_ca
+        elif args.command == "ca":
+            if args.subcommand == "init":
+                from .ca import initialize_ca
+                initialize_ca(args, logger)
 
-        try:
-            initialize_ca(args, logger)
-        except Exception as e:
-            logger.error(f"Failed to initialize CA: {e}", exc_info=True)
+            elif args.subcommand == "issue-intermediate":
+                from .ca import create_intermediate_ca
+                create_intermediate_ca(args, logger)
+
+            elif args.subcommand == "issue-cert":
+                from .ca import issue_end_entity_cert
+                if args.template == 'server' and not args.san:
+                    logger.error("Server certificate requires at least one SAN (--san).")
+                    sys.exit(1)
+                issue_end_entity_cert(args, logger)
+
+            elif args.subcommand == "list-certs":
+                certs = list_certificates(args.db_path, status_filter=args.status)
+                if not certs:
+                    print("No certificates found.")
+                    return
+
+                if args.format == "json":
+                    import json
+                    print(json.dumps(certs, indent=2))
+                elif args.format == "csv":
+                    if certs:
+                        keys = certs[0].keys()
+                        print(",".join(keys))
+                        for c in certs:
+                            print(",".join(str(c[k]) for k in keys))
+                else:
+                    headers = ["Serial", "Subject", "Status", "Not After"]
+                    rows = [[c['serial_hex'], c['subject'], c['status'], c['not_after']] for c in certs]
+                    print(tabulate(rows, headers=headers, tablefmt="grid"))
+
+            elif args.subcommand == "show-cert":
+                rec = get_certificate_by_serial(args.db_path, args.serial)
+                if rec:
+                    print(rec['cert_pem'])
+                else:
+                    logger.error(f"Certificate {args.serial} not found in database.")
+                    sys.exit(1)
+
+        elif args.command == "repo":
+            if args.subcommand == "serve":
+                from .repository import run_server
+                logger.info(f"Starting repository server on {args.host}:{args.port}")
+
+                run_server(
+                    host=args.host,
+                    port=args.port,
+                    db_path=args.db_path,
+                    cert_dir=args.cert_dir,
+                    logger_obj=logger
+                )
+
+        else:
+            logger.error(f"Unknown command: {args.command}")
             sys.exit(1)
 
-        logger.info("Command completed successfully.")
-    else:
-        logger.error(f"Unknown subcommand: {args.subcommand}")
+    except Exception as e:
+        logger.error(f"Critical error: {e}", exc_info=True)
         sys.exit(1)
 
 
