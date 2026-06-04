@@ -1,0 +1,8 @@
+2026-05-31T00:10:05.244 - INFO - Command: audit query
+2026-05-31T00:10:05.263 - ERROR - Critical error: No module named 'fcntl'
+Traceback (most recent call last):
+  File "C:\Users\Desolate\PycharmProjects\microPKI\micropki\micropki\cli.py", line 422, in main
+    from .audit import AuditLogger
+  File "C:\Users\Desolate\PycharmProjects\microPKI\micropki\micropki\audit.py", line 5, in <module>
+    import fcntl
+ModuleNotFoundError: No module named 'fcntl'
